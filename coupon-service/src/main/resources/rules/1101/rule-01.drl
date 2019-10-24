@@ -1,0 +1,269 @@
+package rules;
+import  java.util.List;
+import  java.util.ArrayList;
+import  com.zgli.drools.model.Product;
+import  com.zgli.drools.model.Order;
+import  com.zgli.drools.model.OrderAdjustment;
+import  com.zgli.drools.model.OrderItem;
+import  com.zgli.drools.model.CouponGroupItem;
+import  java.math.BigDecimal
+import org.mvel2.ast.Or;
+
+//添加一条变更记录
+//list 是adjusmen
+function void addAdjusment(List list, int type, double discount, double percent, String ruleName, String oid, int seqId){
+   list.add(new OrderAdjustment(type, discount, percent, ruleName, oid, seqId));
+};
+//
+function void print(List list){
+    for (Object object : list)
+        System.out.println(object);
+};
+
+// 使用bigdecimal进行计算
+function BigDecimal bmath(double a, double b, String operate) {
+    BigDecimal bigA = new BigDecimal(a);
+    BigDecimal bigB = new BigDecimal(b);
+    switch (operate){
+        case  "+" :
+            bigA =   bigA.add(bigB);
+            break;
+        case  "-" :
+            bigA =   bigA.subtract(bigB);
+            break;
+        case  "*" :
+            bigA =   bigA.multiply(bigB);
+            break;
+        case  "/" :
+            bigA =   bigA.divide(bigB, 10, BigDecimal.ROUND_HALF_UP);
+            break;
+    }
+    System.out.println(bigA);
+    return  bigA;
+};
+
+// 通过计算各个商品价格所占得比例来分配优惠金额 paidPrice/total * discountPrice
+//  discountPrice 优惠金额
+// 把调整记录存入调整记录
+function  void setPaidPriceList(List list, double total, double discountPrice, int couponType, String ruleName){
+    for (Object item : list){
+        OrderItem orderItem = (OrderItem)item;
+        BigDecimal paidTotal = new BigDecimal(total);
+        BigDecimal paidDiscount = new BigDecimal(discountPrice);
+        BigDecimal paidPrice =  new BigDecimal(orderItem.getPaidPrice());
+        // 优惠比例
+        BigDecimal discountPercent = paidPrice.divide(paidTotal, 10, BigDecimal.ROUND_HALF_UP);
+        // 优惠金额
+        System.out.println("优惠比例 优惠金额  " + discountPercent + ", " + paidDiscount);
+        paidDiscount = paidDiscount.multiply(discountPercent);
+        System.out.println("优惠比例 优惠金额  " + discountPercent + ", " + paidDiscount);
+        orderItem.setPaidPrice(paidPrice.subtract(paidDiscount).doubleValue());
+        OrderAdjustment temp = new OrderAdjustment(couponType, paidDiscount.doubleValue(), discountPercent.doubleValue(), ruleName, orderItem.getpId(), orderItem.getSeqId());
+        // 把调整记录存入调整记录
+        orderItem.getAdjustmentList().add(temp);
+    }
+};
+// 折扣
+// 把调整记录存入调整记录
+function  void setPaidPriceListDiscount(List list,  double discount, int couponType, String ruleName){
+    for (Object item : list){
+        OrderItem orderItem = (OrderItem)item;
+        BigDecimal discountBig = new BigDecimal(discount);
+        BigDecimal paidPrice =  new BigDecimal(orderItem.getPaidPrice());
+        // 优惠金额
+        discountBig = paidPrice.multiply(discountBig);
+        orderItem.setPaidPrice(discountBig.doubleValue());
+        OrderAdjustment temp = new OrderAdjustment(couponType, paidPrice.subtract(discountBig).doubleValue(), 100, ruleName, orderItem.getpId(), orderItem.getSeqId());
+        // 把调整记录存入调整记录
+        orderItem.getAdjustmentList().add(temp);
+    }
+};
+// 优惠券的存放规则，是以rules->店铺id-> rule.drl 这个路径存放
+// package 值就是rules.org.id
+//优惠卷使用规则，同一张优惠券一次只能使用一张，对于每满200元减20元这个是一张优惠券
+// 针对店铺商品的优惠卷
+// 优惠券类型，满减（包含金额/数量）、打折（包含满多少金额/数量）、赠品、，赠品、,第二件打5折,新人优惠卷， 20元以下的价格都按照5元，仅限一件
+// rule名称规则，单个商品前缀 pruduct single(ps), 多个商品 pm,类型 type， 店铺 typeall——
+// 涉及到具体商品就使用使用商品id-skuid,标明具体的商品
+
+rule "PS-1101-2201-满减-顺序号-1"
+    // 针对同一个商品的满减互斥, 加入到同一个
+    // activation-group
+    activation-group "PS-1101-2201-单品-满减"
+    salience 9
+    no-loop true
+    when
+        $order : Order()
+        $result : OrderItem(paidPrice > 200 && pId == "1101" && skuId == "2201") from $order.itemList
+    then
+        //关于精度的计算都使用 bigdecimal，这样可以保证浮点数的精度，原因是double是用2进制存储，有些值无法处理
+        $result.setPaidPrice(bmath($result.getPaidPrice(), 20,"-").doubleValue());
+//        update($order)
+//       System.out.println($result);
+       // 添加一条调整记录
+       addAdjusment($result.getAdjustmentList(), 1, 20, 100, "PS-1101-1102-满减-顺序号-1", $order.getoId(), $result.getSeqId());
+       System.out.println($result);
+    end
+
+rule "PS-1101-2201-满减-顺序号-2"
+    // 针对同一个商品的满减互斥, 加入到同一个
+    // activation-group
+    activation-group "PS-1101-2201-单品-满减"
+    salience 10
+    no-loop true
+    when
+        $order : Order()
+        $result : OrderItem(paidPrice > 300 && pId == "1101" && skuId == "2201") from $order.itemList
+
+    then
+        //关于精度的计算都使用 bigdecimal，这样可以保证浮点数的精度，原因是double是用2进制存储，有些值无法处理
+        $result.setPaidPrice(bmath($result.getPaidPrice(), 30,"-").doubleValue());
+        //设置update 则是没满300 减30，一直减到低于300
+       // update($order)
+//       System.out.println($result);
+       // 添加一条调整记录
+       addAdjusment($result.getAdjustmentList(), 1, 20, 100, "PS-1101-2201-满减-顺序号-2", $order.getoId(), $result.getSeqId());
+       System.out.println($result);
+    end
+
+
+//针对多个商品，问题在于是否互斥 如果互斥则放入 activation-group 中, 对应优惠卷是否可以叠加使用，如何和单品满减互斥，则放入同一个group中
+rule "PM-1101-1102-满减-顺序号-1"
+    // 针对同一个商品的满减互斥, 加入到同一个
+    // activation-group
+//    activation-group "PM-1101-2201-单品-满减"
+//    salience 10
+    no-loop true
+    when
+        // 获取匹配商品得列表
+        $order : Order()
+        $result : List() from collect(OrderItem(pId in ("1101", "1102","1103") && skuId in ("2201", "2202", "2203")) from  $order.itemList)
+        $total : Double( doubleValue > 200 )
+         from accumulate(OrderItem(pId in ("1101", "1102","1103") , skuId in ("2201", "2202", "2203") , $value : paidPrice ),
+         init( double total = 0; ),
+         action( total += $value; ),
+         reverse( total -= $value; ),
+         result( total ))
+    then
+    System.out.println($result);
+        System.out.println("total:  " + $total);
+        setPaidPriceList($result, $total, 200d, 1, "PM-1101-1102-满减-顺序号-1");
+    end
+
+//针对多个商品，问题在于是否互斥 如果互斥则放入 activation-group 中, 对应优惠卷是否可以叠加使用，如何和单品满减互斥，则放入同一个group中
+//满两件打8折
+rule "PM-1101-1102-满减-顺序号-2"
+    // 针对同一个商品的满减互斥, 加入到同一个
+    // activation-group
+//    activation-group "PM-1101-2201-单品-满减"
+//    salience 10
+    no-loop true
+    when
+        // 获取匹配商品得列表
+        $order : Order()
+        $result : List() from collect(OrderItem(pId in ("1101", "1102","1103") && skuId in ("2201", "2202", "2203")) from  $order.itemList)
+        $total : Integer( intValue >= 2 )
+         from accumulate(OrderItem(pId in ("1101", "1102","1103") , skuId in ("2201", "2202", "2203") , $value : quantity ),
+         init( int total = 0; ),
+         action( total += $value; ),
+         reverse( total -= $value; ),
+         result( total ))
+    then
+        System.out.println($result);
+        System.out.println("total:  " + $total);
+        setPaidPriceListDiscount($result, 0.8, 1, "PM-1101-1102-满减-顺序号-2");
+    end
+
+// 店铺优惠
+// 满减, 满多少元
+rule   "PM-org001-满减-顺序号-1"
+    // 针对同一个商品的满减互斥, 加入到同一个
+    // activation-group
+//    activation-group "PM-1101-2201-单品-满减"
+//    salience 10
+    no-loop true
+    when
+        // 获取匹配商品得列表
+        $order : Order()
+        $result : List() from collect(OrderItem(orgId in ("org001")) from  $order.itemList)
+        $total : Double( doubleValue() >= 200 )
+         from accumulate(OrderItem(orgId in  ("org001"), $value : paidPrice ),
+         init( double total = 0; ),
+         action( total += $value; ),
+         reverse( total -= $value; ),
+         result( total ))
+    then
+        System.out.println($result);
+        System.out.println("total:  " + $total);
+        setPaidPriceList($result,$total, 200d, 1, "PM-org001-满减-顺序号-2");
+    end
+
+// 店铺优惠
+// 满减, 满多少件
+rule "PM-org001-满减-顺序号-2"
+    // 针对同一个商品的满减互斥, 加入到同一个
+    // activation-group
+//    activation-group "PM-1101-2201-单品-满减"
+//    salience 10
+    no-loop true
+    when
+        // 获取匹配商品得列表
+        $order : Order()
+        $result : List() from collect(OrderItem(orgId in ("org001")) from  $order.itemList)
+        $total : Integer( intValue >= 2 )
+         from accumulate(OrderItem(orgId in  ("org001"), $value : quantity ),
+         init( int total = 0; ),
+         action( total += $value; ),
+         reverse( total -= $value; ),
+         result( total ))
+    then
+        System.out.println($result);
+        System.out.println("total:  " + $total);
+        setPaidPriceListDiscount($result, 0.8, 1, "PM-org001-满减-顺序号-2");
+    end
+//品类优惠 和 店铺优惠一样，orgid改为品类id，平台优惠券
+// 品类优惠
+// 满减, 满多少元
+rule   "PM-category-001-满减-顺序号-1"
+    // 针对同一个商品的满减互斥, 加入到同一个
+    // activation-group
+//    activation-group "PM-1101-2201-单品-满减"
+//    salience 10
+    no-loop true
+    when
+        $order : Order()
+        // 获取匹配商品得列表
+        $result : List() from collect(OrderItem(category in ("001")) from  $order.itemList)
+        $total : Double( doubleValue() >= 200 )
+         from accumulate(OrderItem(orgId in  ("org001"), $value : paidPrice ),
+         init( double total = 0; ),
+         action( total += $value; ),
+         reverse( total -= $value; ),
+         result( total ))
+    then
+        System.out.println($result);
+        System.out.println("total:  " + $total);
+        setPaidPriceList($result,$total, 200d, 1, "PM-category-001-满减-顺序号-1");
+    end
+// 平台优惠
+// 满减, 满多少元
+rule   "PM-platform-满减-顺序号-1"
+    // 针对同一个商品的满减互斥, 加入到同一个
+    // activation-group
+//    activation-group "PM-1101-2201-单品-满减"
+//    salience 10
+    no-loop true
+    when
+        // 获取所有商品得列表
+        $order : Order($result : itemList)
+        $total : Double( doubleValue() >= 200 )
+         from accumulate(OrderItem(true, $value : paidPrice ),
+         init( double total = 0; ),
+         action( total += $value; ),
+         reverse( total -= $value; ),
+         result( total ))
+    then
+        System.out.println($result);
+        System.out.println("total:  " + $total);
+        setPaidPriceList($result,$total, 200d, 1, "PM-platform-满减-顺序号-1");
+    end

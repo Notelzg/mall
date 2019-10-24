@@ -1,0 +1,20 @@
+package rules;
+import com.zgli.drools.model.Customer;
+
+// rule values at A10, header at A5
+rule "Standard Customer"
+    activation-group "PS-1101-1102-单品-满减"
+	when
+		customerObject: Customer(age >= 1)
+	then
+		customerObject.setDiscount(15);
+end
+
+// rule values at A11, header at A5
+rule "Premium Customer"
+    activation-group "PS-1101-1102-单品-满减"
+	when
+		customerObject: Customer(age >= 2)
+	then
+		customerObject.setDiscount(25);
+end

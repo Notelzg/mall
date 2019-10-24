@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<kmodule xmlns="http://www.drools.org/xsd/kmodule">
+    <!--excel 决策表使用 -->
+    <kbase name="exceltest" packages="rules">
+        <ksession name="exceltest"/>
+    </kbase>
+</kmodule>
